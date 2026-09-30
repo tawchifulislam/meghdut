@@ -412,8 +412,6 @@ function renderWeather(data, forecast) {
   $('weatherCard').classList.remove('hidden');
 }
 
-/* Init */
-
 $('unitC').classList.toggle('active', currentUnit === 'C');
 $('unitF').classList.toggle('active', currentUnit === 'F');
 $('unitC').addEventListener('click', () => setUnit('C'));
