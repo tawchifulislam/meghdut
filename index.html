@@ -21,9 +21,15 @@
     class="relative z-10 min-h-screen flex flex-col items-center px-5 sm:px-8 md:px-10 pt-10 sm:pt-14 md:pt-16 lg:pt-20 pb-16">
     <div class="w-full max-w-sm sm:max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-4xl">
 
-      <div class="mb-10 sm:mb-12 md:mb-14 fade-up" style="animation-delay:0s">
-        <p class="label-text mb-2">Weather</p>
-        <h1 class="display-font text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight">Meghdut</h1>
+      <div class="mb-10 sm:mb-12 md:mb-14 fade-up flex items-start justify-between" style="animation-delay:0s">
+        <div>
+          <p class="label-text mb-2">Weather</p>
+          <h1 class="display-font text-5xl sm:text-6xl md:text-7xl font-medium tracking-tight">Meghdut</h1>
+        </div>
+        <div class="unit-toggle mt-2">
+          <button id="unitC" class="unit-btn active" aria-label="Celsius">°C</button>
+          <button id="unitF" class="unit-btn" aria-label="Fahrenheit">°F</button>
+        </div>
       </div>
 
       <div class="mb-10 sm:mb-12 md:mb-14 fade-up" style="animation-delay:0.08s">
@@ -39,6 +45,7 @@
           </button>
         </div>
         <p id="errorMsg" class="hidden mt-3 text-red-400/80 text-sm font-light"></p>
+        <div id="recentChips" class="flex flex-wrap gap-2 mt-3"></div>
       </div>
 
       <div id="emptyState" class="fade-up" style="animation-delay:0.16s">
@@ -144,7 +151,7 @@
         </div>
 
         <div class="card p-5 sm:p-6 md:p-8 fade-up" style="animation-delay:0.12s">
-          <p class="label-text mb-4 sm:mb-6">3-Day Forecast</p>
+          <p class="label-text mb-4 sm:mb-6">5-Day Forecast</p>
           <div id="forecastContainer" class="grid grid-cols-5 gap-1 sm:gap-3 md:gap-4"></div>
         </div>
 
