@@ -1,5 +1,13 @@
 const $ = id => document.getElementById(id);
 
+const RECENT_KEY = 'meghdut_recent_cities';
+const UNIT_KEY = 'meghdut_unit';
+
+let currentUnit = localStorage.getItem(UNIT_KEY) || 'C';
+let isFetching = false;
+let lastData = null;
+let lastForecast = null;
+
 const weatherIconPaths = {
   Thunderstorm: `
     <path d="M7 13a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17 4.5 4 4 0 0 1 16.5 13H7z"/>
@@ -53,7 +61,6 @@ const weatherIconPaths = {
   `,
 };
 
-/* Several raw condition categories fold into the same visual treatment */
 const iconAliasMap = {
   Mist: 'Fog',
   Smoke: 'Fog',
@@ -70,8 +77,6 @@ function weatherIconSVG(main, { size = 48, strokeWidth = 1.6 } = {}) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
 }
 
-/* Subtle background tint per condition group - keeps the dark/gold
-   identity but shifts the orb glow so the app feels reactive to conditions */
 const weatherThemes = {
   Clear: { orb1: '#3a2f12', orb2: '#4a3418' },
   Clouds: { orb1: '#0d2557', orb2: '#091840' },
@@ -127,27 +132,95 @@ function setLoading(on) {
   $('weatherCard').classList.add('hidden');
 }
 
-async function fetchWeather() {
-  const city = $('cityInput').value.trim();
-  if (!city) return;
+/* Recent searches */
 
+function getRecentCities() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentCity(city) {
+  let list = getRecentCities().filter(
+    c => c.toLowerCase() !== city.toLowerCase(),
+  );
+  list.unshift(city);
+  list = list.slice(0, 5);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  renderRecentChips();
+}
+
+function renderRecentChips() {
+  const list = getRecentCities();
+  const el = $('recentChips');
+  el.innerHTML = '';
+  if (!list.length) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
+  list.forEach(city => {
+    const btn = document.createElement('button');
+    btn.className = 'recent-chip';
+    btn.type = 'button';
+    btn.textContent = city;
+    btn.addEventListener('click', () => {
+      $('cityInput').value = city;
+      fetchWeather();
+    });
+    el.appendChild(btn);
+  });
+}
+
+/* Unit toggle */
+
+function setUnit(unit) {
+  currentUnit = unit;
+  localStorage.setItem(UNIT_KEY, unit);
+  $('unitC').classList.toggle('active', unit === 'C');
+  $('unitF').classList.toggle('active', unit === 'F');
+  if (lastData && lastForecast) {
+    renderWeather(lastData, lastForecast);
+  }
+}
+
+function convertTemp(celsius, fahrenheit) {
+  return currentUnit === 'C' ? Math.round(celsius) : Math.round(fahrenheit);
+}
+
+/* Fetch */
+
+async function fetchWeatherByQuery(queryParams) {
+  if (isFetching) return;
+
+  isFetching = true;
   hideError();
   setLoading(true);
 
   try {
     const [currentRes, forecastRes] = await Promise.all([
-      fetch(`/api/weather?city=${encodeURIComponent(city)}&type=current`),
-      fetch(`/api/weather?city=${encodeURIComponent(city)}&type=forecast`),
+      fetch(`/api/weather?${queryParams}&type=current`),
+      fetch(`/api/weather?${queryParams}&type=forecast`),
     ]);
 
     if (!currentRes.ok) {
       const err = await currentRes.json();
       throw new Error(err.error || 'City not found');
     }
+    if (!forecastRes.ok) {
+      const err = await forecastRes.json();
+      throw new Error(err.error || 'Forecast unavailable');
+    }
 
     const data = await currentRes.json();
     const forecast = await forecastRes.json();
 
+    lastData = data;
+    lastForecast = forecast;
+
+    saveRecentCity(data.location.name);
     renderWeather(data, forecast);
   } catch (err) {
     setLoading(false);
@@ -157,7 +230,30 @@ async function fetchWeather() {
         ? 'Network error. Please check your connection.'
         : `${err.message}`,
     );
+  } finally {
+    isFetching = false;
   }
+}
+
+async function fetchWeather() {
+  const city = $('cityInput').value.trim();
+  if (!city) return;
+  await fetchWeatherByQuery(`city=${encodeURIComponent(city)}`);
+}
+
+function tryGeolocation() {
+  if (!('geolocation' in navigator)) return;
+
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      const { latitude, longitude } = position.coords;
+      fetchWeatherByQuery(`lat=${latitude}&lon=${longitude}`);
+    },
+    () => {
+      // Permission denied or unavailable, stay on empty state
+    },
+    { timeout: 8000 },
+  );
 }
 
 function mapCondition(text) {
@@ -181,7 +277,7 @@ function mapCondition(text) {
   return 'Clear';
 }
 
-/* --- Sun-path signature element --- */
+/* Sun path */
 
 function parseTimeToMinutes(timeStr) {
   const [time, period] = timeStr.trim().split(' ');
@@ -247,6 +343,8 @@ function renderSunPath(astro, localtimeEpoch) {
   $('sunPathCaption').textContent = caption;
 }
 
+/* Render */
+
 function renderWeather(data, forecast) {
   const current = data.current;
   const location = data.location;
@@ -259,10 +357,12 @@ function renderWeather(data, forecast) {
   $('countryDate').textContent =
     `${location.country} · ${formatDate(location.localtime_epoch, 0)}`;
   $('weatherDesc').textContent = conditionText;
-  $('tempDisplay').innerHTML =
-    `${Math.round(current.temp_c)}<span class="deg">°</span>`;
-  $('feelsLike').textContent =
-    `Feels like ${Math.round(current.feelslike_c)}°C`;
+
+  const temp = convertTemp(current.temp_c, current.temp_f);
+  const feels = convertTemp(current.feelslike_c, current.feelslike_f);
+  $('tempDisplay').innerHTML = `${temp}<span class="deg">°</span>`;
+  $('feelsLike').textContent = `Feels like ${feels}°${currentUnit}`;
+
   $('weatherIcon').innerHTML = weatherIconSVG(main, { size: 72 });
   $('humidity').textContent = `${current.humidity}%`;
   $('windSpeed').textContent = `${Math.round(current.wind_kph)} km/h`;
@@ -289,6 +389,9 @@ function renderWeather(data, forecast) {
         ? 'rgba(201,169,110,0.9)'
         : 'rgba(255,255,255,0.28)';
       const iconColor = isFirst ? '#c9a96e' : 'rgba(255,255,255,0.55)';
+      const avg = convertTemp(item.day.avgtemp_c, item.day.avgtemp_f);
+      const min = convertTemp(item.day.mintemp_c, item.day.mintemp_f);
+      const max = convertTemp(item.day.maxtemp_c, item.day.maxtemp_f);
       return `
       <div style="${bg} border-radius:16px; padding:14px 4px; display:flex; flex-direction:column; align-items:center; gap:8px; cursor:default;">
         <p style="font-size:clamp(9px,1.4vw,11px); font-weight:500; letter-spacing:0.1em; text-transform:uppercase; color:${dayColor};">
@@ -296,10 +399,10 @@ function renderWeather(data, forecast) {
         </p>
         <span class="forecast-icon" style="color:${iconColor};">${weatherIconSVG(dayMain, { size: 24, strokeWidth: 1.5 })}</span>
         <p style="font-family:'Playfair Display',serif; font-size:clamp(14px,2.5vw,20px); font-weight:500; color:#fff;">
-          ${Math.round(item.day.avgtemp_c)}°
+          ${avg}°
         </p>
         <p style="font-size:clamp(9px,1.2vw,11px); color:rgba(255,255,255,0.22); text-align:center; line-height:1.4;">
-          ${Math.round(item.day.mintemp_c)}°<br/>${Math.round(item.day.maxtemp_c)}°
+          ${min}°<br/>${max}°
         </p>
       </div>`;
     })
@@ -308,3 +411,12 @@ function renderWeather(data, forecast) {
   setLoading(false);
   $('weatherCard').classList.remove('hidden');
 }
+
+/* Init */
+
+$('unitC').classList.toggle('active', currentUnit === 'C');
+$('unitF').classList.toggle('active', currentUnit === 'F');
+$('unitC').addEventListener('click', () => setUnit('C'));
+$('unitF').addEventListener('click', () => setUnit('F'));
+renderRecentChips();
+tryGeolocation();
