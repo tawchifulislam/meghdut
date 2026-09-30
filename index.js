@@ -343,8 +343,6 @@ function renderSunPath(astro, localtimeEpoch) {
   $('sunPathCaption').textContent = caption;
 }
 
-/* Render */
-
 function renderWeather(data, forecast) {
   const current = data.current;
   const location = data.location;
